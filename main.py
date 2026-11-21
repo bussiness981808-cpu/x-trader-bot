@@ -30,7 +30,7 @@ api = FastAPI()
 telegram_app = None
 
 # ==========================================
-# MINI APP KA HTML CODE (Directly embedded)
+# MINI APP KA HTML CODE (Fixed Top View)
 # ==========================================
 MINIAPP_HTML = """
 <!doctype html>
@@ -53,8 +53,8 @@ body{
   background:radial-gradient(circle at top left,#1b1040 0%,transparent 35%),
              radial-gradient(circle at bottom right,#001f3f 0%,transparent 35%),
              var(--bg);
-  min-height:100vh; display:flex; justify-content:center; align-items:center;
-  font-family:Inter,sans-serif; color:white; padding:15px;
+  min-height:100vh; display:flex; justify-content:center; align-items:flex-start;
+  font-family:Inter,sans-serif; color:white; padding:15px; padding-top:30px;
   overflow-x:hidden;
 }
 .phone{
@@ -333,7 +333,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- Mini App Route ----------
 @api.get("/miniapp", response_class=HTMLResponse)
 async def serve_miniapp():
-    # Ab file ki zaroorat nahi, seedha HTML return karega
     return HTMLResponse(content=MINIAPP_HTML)
 
 # ---------- Webhook route ----------
