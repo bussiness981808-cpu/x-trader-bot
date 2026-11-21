@@ -3,8 +3,12 @@ import qrcode
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse
+import uvicorn
+
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo
 )
 from telegram.ext import (
     Application,
@@ -18,8 +22,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7142188619"))
 UPI_ID = os.getenv("UPI_ID", "BHARATPE2G0W0I1W6R16196@unitype")
 UPI_NAME = os.getenv("UPI_NAME", "X Trader AI")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 WAITING_SCREENSHOT = 1
+
+api = FastAPI()
+telegram_app = None
 
 # ---------- QR Generator ----------
 def generate_qr(amount: int, note: str) -> BytesIO:
@@ -51,37 +59,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📦 3 Days – ₹499", callback_data="pkg_499")],
         [InlineKeyboardButton("📦 7 Days – ₹999", callback_data="pkg_999")],
         [InlineKeyboardButton("🚀 Private Server – ₹1999", callback_data="pkg_1999")],
-        [InlineKeyboardButton("🎬 Watch Demo (Free)", callback_data="demo")],
+        [InlineKeyboardButton(
+            "🚀 Open Number Hack App",
+            web_app=WebAppInfo(url=f"{WEBHOOK_URL}/miniapp")
+        )],
     ])
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
 
-# ---------- Demo (HTML file bhejta hai) ----------
-async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
+# ---------- Mini App route ----------
+@api.get("/miniapp", response_class=HTMLResponse)
+async def serve_miniapp():
     try:
-        with open("hack_demo.html", "rb") as f:
-            await q.message.reply_document(
-                document=InputFile(f, filename="hack_demo.html"),
-                caption=(
-                    "🎮 *X Trader AI - Hack Demo*\n\n"
-                    "Yeh demo file hai. Isko download karke browser mein kholein.\n"
-                    "🔒 Predict button locked hai — purchase ke baad unlock hoga."
-                ),
-                parse_mode="Markdown"
-            )
+        with open("miniapp.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
     except FileNotFoundError:
-        await q.message.reply_text("❌ Demo file nahi mili. Admin se contact karein.")
-        return
+        return HTMLResponse(content="<h1>Mini App file not found</h1>", status_code=404)
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
-    ])
-    await q.message.reply_text(
-        "👆 Demo file upar bheji gayi hai.",
-        reply_markup=kb
-    )
+# ---------- Webhook route ----------
+@api.post("/webhook")
+async def telegram_webhook(request: Request):
+    if telegram_app is None:
+        return Response(status_code=503)
+    data = await request.json()
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.update_queue.put(update)
+    return Response(status_code=200)
 
 # ---------- Package selected ----------
 async def package_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -180,17 +182,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Cancelled. /start dobara dabaye.")
     return ConversationHandler.END
 
-# ---------- Main (Webhook mode for Render) ----------
-def main():
-    PORT = int(os.environ.get("PORT", "8443"))
-    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
-    if not WEBHOOK_URL:
-        print("❌ WEBHOOK_URL environment variable nahi mila!")
-        return
-
-    app = Application.builder().token(BOT_TOKEN).build()
-
+# ---------- Setup bot handlers ----------
+def setup_handlers(app: Application):
     conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(ask_screenshot, pattern="^paid$")],
         states={
@@ -204,18 +197,40 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(demo, pattern="^demo$"))
     app.add_handler(CallbackQueryHandler(package_selected, pattern="^pkg_"))
     app.add_handler(CallbackQueryHandler(package_selected, pattern="^back$"))
     app.add_handler(conv)
 
-    print(f"✅ Bot webhook mode par start ho raha hai: {WEBHOOK_URL}")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}"
-    )
+# ---------- Startup / Shutdown ----------
+@api.on_event("startup")
+async def on_startup():
+    global telegram_app
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN nahi mila!")
+        return
+    if not WEBHOOK_URL:
+        print("❌ WEBHOOK_URL nahi mila!")
+        return
 
+    telegram_app = Application.builder().token(BOT_TOKEN).build()
+    setup_handlers(telegram_app)
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+
+    webhook_endpoint = f"{WEBHOOK_URL}/webhook"
+    await telegram_app.bot.set_webhook(url=webhook_endpoint)
+    print(f"✅ Bot started. Webhook set: {webhook_endpoint}")
+
+@api.on_event("shutdown")
+async def on_shutdown():
+    global telegram_app
+    if telegram_app:
+        await telegram_app.stop()
+        await telegram_app.shutdown()
+        print("🛑 Bot stopped.")
+
+# ---------- Run ----------
 if __name__ == "__main__":
-    main()
+    PORT = int(os.environ.get("PORT", "8443"))
+    uvicorn.run(api, host="0.0.0.0", port=PORT)
