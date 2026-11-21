@@ -55,18 +55,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
 
-# ---------- Demo ----------
+# ---------- Demo (HTML file bhejta hai) ----------
 async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    demo_url = "https://youtu.be/XXXXXXX"   # 👉 apna demo video link yahan daal
+
+    try:
+        with open("hack_demo.html", "rb") as f:
+            await q.message.reply_document(
+                document=InputFile(f, filename="hack_demo.html"),
+                caption=(
+                    "🎮 *X Trader AI - Hack Demo*\n\n"
+                    "Yeh demo file hai. Isko download karke browser mein kholein.\n"
+                    "🔒 Predict button locked hai — purchase ke baad unlock hoga."
+                ),
+                parse_mode="Markdown"
+            )
+    except FileNotFoundError:
+        await q.message.reply_text("❌ Demo file nahi mili. Admin se contact karein.")
+        return
+
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Open Demo Video", url=demo_url)],
         [InlineKeyboardButton("⬅️ Back", callback_data="back")]
     ])
     await q.message.reply_text(
-        "🎬 *Hack Demo Video*\n\nYeh demo dekhne ke baad hi purchase karein!",
-        parse_mode="Markdown",
+        "👆 Demo file upar bheji gayi hai.",
         reply_markup=kb
     )
 
